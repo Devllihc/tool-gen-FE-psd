@@ -1,0 +1,28 @@
+{
+  "manifestVersion": 5,
+  "id": "com.fco.uihelper",
+  "name": "FCO UI Helper & Slicer",
+  "version": "1.0.1",
+  "main": "index.html",
+  "host": [
+    {
+      "app": "PS",
+      "minVersion": "23.0.0"
+    }
+  ],
+  "entrypoints": [
+    {
+      "type": "panel",
+      "id": "fcoUiHelperPanel",
+      "label": {
+        "default": "FCO UI Helper"
+      },
+      "minimumSize": { "width": 500, "height": 600 },
+      "preferredDockedSize": { "width": 520, "height": 720 },
+      "preferredFloatingSize": { "width": 560, "height": 800 }
+    }
+  ],
+  "requiredPermissions": {
+    "localFileSystem": "fullAccess"
+  }
+}

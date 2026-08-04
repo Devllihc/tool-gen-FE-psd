@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+  <div class="panel">
+    <header class="brand">
+      <span class="brand__mark"></span>
+      <span class="brand__text">
+        <span class="brand__title">PTS Slicer</span>
+        <span class="brand__sub">layer tree → images + spec</span>
+      </span>
+    </header>
+
+    <!-- 01 · Target -->
+    <section class="step">
+      <div class="step__head"><span class="step__num">01</span><span class="step__name">Target</span></div>
+      <div class="step__body">
+        <label class="lbl" for="projectPath">Repo folder</label>
+        <div class="row">
+          <input type="text" id="projectPath" placeholder="No folder selected…" readonly/>
+          <button id="btnBrowse" class="btn btn--ghost">Browse</button>
+        </div>
+        <label class="lbl" for="sectionName">Section name <span class="lbl__hint">blank = derive from group name</span></label>
+        <input type="text" id="sectionName" placeholder="e.g. Section3Predict"/>
+      </div>
+    </section>
+
+    <!-- 02 · Analyze -->
+    <section class="step">
+      <div class="step__head"><span class="step__num">02</span><span class="step__name">Analyze</span></div>
+      <div class="step__body">
+        <p class="hint">Select <strong>1 group / frame</strong> in Layers → scan structure &amp; classify static/dynamic. <em>No images cut yet.</em></p>
+        <button id="btnAnalyze" class="btn btn--accent btn--block">Analyze structure</button>
+        <div class="stats">
+          <div class="stat"><span class="stat__num" id="cntImages">0</span><span class="stat__lbl">img</span></div>
+          <div class="stat"><span class="stat__num" id="cntText">0</span><span class="stat__lbl">text</span></div>
+          <div class="stat"><span class="stat__num" id="cntLayers">0</span><span class="stat__lbl">layers</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 · Review & Cut (tự hiện sau khi Phân tích) -->
+    <section class="step" id="reviewSection" style="display:none">
+      <div class="step__head"><span class="step__num">03</span><span class="step__name">Review &amp; Cut</span></div>
+      <div class="step__body">
+        <div class="toolbar">
+          <span class="toolbar__left">
+            <label class="toggle"><input type="checkbox" id="chkOnlyReview" checked/><span>Only needs-review</span></label>
+          </span>
+          <span class="review-progress" id="reviewProgress"></span>
+          <span class="toolbar__actions">
+            <button id="btnReloadPlan" class="btn btn--mini" title="Reload plan.json">🔄</button>
+            <button id="btnOpenPlan" class="btn btn--mini" title="Open plan.json externally">📄</button>
+          </span>
+        </div>
+        <div id="reviewList"></div>
+        <label class="toggle toggle--warn"><input type="checkbox" id="chkSkipReview"/><span>Skip warnings, cut anyway</span></label>
+        <button id="btnCut" class="btn btn--accent btn--block" disabled>✂️ Confirm &amp; Cut images</button>
+        <div id="cutBlockedReason" class="flag"></div>
+      </div>
+    </section>
+
+    <div id="statusLog" class="status">Ready.</div>
+  </div>
+
+  <script src="main.js"></script>
+</body>
+</html>
