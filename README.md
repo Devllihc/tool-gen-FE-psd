@@ -15,7 +15,7 @@ plugin-pts/
 ├── README.md              ← file này
 ├── pts-plugin/            ← Phần A: plugin UXP (load vào Photoshop)
 └── project-files/         ← Phần B: copy vào repo React đích
-    ├── .claude/commands/gen-section.md
+    ├── .claude/commands/{gen-section.md, gen-plan.md}
     ├── tools/gen-from-psd/{index.js, plan.js, planFallback.js}
     └── .pts-config.example.json   → đổi tên thành .pts-config.json trong dự án
 ```
@@ -78,8 +78,13 @@ Chạy ngay trong phiên Claude Code, thấy từng bước: đọc spec + `prev
 ```
 bun run gen-section --plan <slug>
 ```
-Claude đọc `preview.png` + `raw-tree.json`, tinh chỉnh subRole/apiHint → ghi đè `plan.json`.
-Quay lại panel bấm **🔄 Reload** để nạp. Không có `claude` trên PATH → fallback all-static.
+`tools/gen-from-psd/plan.js` (trong repo đích) chỉ là delegator — spawn `claude -p` để chạy
+đúng rule trong **`.claude/commands/gen-plan.md`** (nguồn chân lý duy nhất cho bước này,
+giống hệt cách `index.js`/`gen-section.md` phối hợp), rồi ghi đè `plan.json`. Quay lại panel
+bấm **🔄 Reload** để nạp. Không có `claude` trên PATH, hoặc AI chạy lỗi → fallback all-static.
+
+> Muốn xem/steer từng bước thay vì chạy non-interactive: mở phiên Claude Code trong repo
+> đích rồi gõ `/gen-plan <slug>` trực tiếp.
 
 ---
 

@@ -109,6 +109,17 @@ from the exemplar + CLAUDE.md.
   genuinely overlap/scatter, wrap them in **one centered fixed-width box** (frame width,
   `margin: 0 auto`, `position: relative`). Reserve `position:absolute` for the **inner**
   scattered arrangement of a list's instances, inside a relative fixed-size box.
+- **Every `position:absolute` container needs an explicit size.** If a box is
+  `position:absolute` and every one of its own direct children is *also*
+  `position:absolute` (the norm for a list's per-instance `--N` wrapper, or any inner
+  scattered box), it has nothing in-flow to shrink-to-fit around and silently collapses
+  to `0×0` — no error, no warning. A `<div>` child with its own explicit `width`/`height`
+  still looks fine, but any `<img>`/image component inside gets clamped to `width: 0` by
+  this project's global `img { max-width: 100% }` reset (100% of a 0px containing block
+  is 0), while its `height` renders correctly (no matching global `max-height`) — so the
+  bug shows up as a missing/invisible image, not an obvious layout break. Always give
+  such a container an explicit `width`/`height` (from `bounds.w/h`, or per-instance from
+  `boundsOverride`/the dominant child) — never leave it position-only.
 - **role `container` / `component`:** a layout box. `layout.direction` `row`/`column` →
   flexbox; `absolute` → position children by `bounds`, but obey CENTER-THE-FRAME. `layout`
   is only a hint — trust the preview.
@@ -118,7 +129,18 @@ from the exemplar + CLAUDE.md.
   fallback. Position each instance from `node.instanceOffsets[i]` as a **BEM modifier class**
   `&__<el>--1..N` in SCSS (not inline style), applied by index — never rebuild positions with
   flex `gap`. Each `instanceTemplate` child follows the asset/text rules below, placed inside
-  one instance by its `bounds`.
+  one instance by its `bounds` — **except** an instance index present in that child's
+  `boundsOverride` map (`{ "<instanceIndex>": {x,y,w,h} }`, 0-based, only set when needed):
+  use the override's `x/y/w/h` for that instance only, nested under its own `--N` selector
+  (e.g. `&__<el>--N .<child>` or `&-N .<child>`). Some lists have genuine per-instance
+  geometry (a perspective/size difference drawn in the PSD itself, not just position) that
+  one shared `bounds` can't represent — `boundsOverride` is only present when it does; most
+  lists won't have it at all. `boundsOverride` never carries rotation/skew (Photoshop
+  doesn't retain an angle once a raster transform is committed, so the pipeline can't
+  extract one) — for any instance that has an override, also glance at the preview for
+  that specific instance: if it looks visibly tilted compared to the others (not just a
+  different size), add a `transform: rotate(<deg>deg)` on that instance's `--N` override by
+  eye, the same way you already read every other visual detail off the preview.
 - **role `asset`, subRole `static-asset`:** fixed shared visual. A frame / background /
   decoration → CSS `background: url('/images/<node.image>')`; content sitting in the flow →
   an image tag. `node.image` is the **real cut filename** — read it, never guess. Use the

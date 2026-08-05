@@ -137,13 +137,37 @@ function showPath(doc, path) {
 		layers = isGroup(l) ? l.layers : [];
 	}
 }
-async function sliceOne(doc, path, file) {
+// Snapshot each layer's real (pre-hide) visibility, keyed by layer.id — used to tell a
+// mutually-exclusive tab/phase sibling (hidden in the PSD) from one that's really shown.
+// Keyed by id, not the layer object itself: the Photoshop UXP API does not guarantee the
+// same JS wrapper object across separate `.layers` accesses (same convention as
+// findPathById/layerAtPath elsewhere in this file, which also identify layers by id).
+function captureVisibleRecursive(layers, map) {
+	for (const l of layers) {
+		map.set(l.id, l.visible);
+		if (isGroup(l)) captureVisibleRecursive(l.layers, map);
+	}
+}
+function restoreVisibleRecursive(layers, map) {
+	for (const l of layers) {
+		l.visible = map.get(l.id) ?? true;
+		if (isGroup(l)) restoreVisibleRecursive(l.layers, map);
+	}
+}
+async function sliceOne(doc, path, file, opts = {}) {
+	const { respectVisibility = false } = opts;
 	await core.executeAsModal(async () => {
 		const dup = await doc.duplicate();
 		try {
+			const originalVisibility = respectVisibility ? new Map() : null;
+			if (originalVisibility) captureVisibleRecursive(dup.layers, originalVisibility);
 			setVisibleRecursive(dup.layers, false);
 			showPath(dup, path);
-			setVisibleRecursive([layerAtPath(dup, path)], true);
+			const target = layerAtPath(dup, path);
+			target.visible = true;
+			const children = isGroup(target) ? target.layers : [];
+			if (originalVisibility) restoreVisibleRecursive(children, originalVisibility);
+			else setVisibleRecursive(children, true);
 			try { await dup.trim(constants.TrimType.TRANSPARENT); } catch (e) { /* transparent → skip */ }
 			await dup.saveAs.png(file, {}, true);
 		} finally {
@@ -391,7 +415,9 @@ btnAnalyze.addEventListener('click', async () => {
 
 		log('🖼 Exporting preview…');
 		const previewFile = await cacheFolder.createFile('preview.png', { overwrite: true });
-		await sliceOne(doc, rootPath, previewFile);
+		// respectVisibility: a whole-frame preview must reflect real PSD visibility — otherwise
+		// mutually-exclusive tab/phase siblings (hidden in Photoshop) get force-shown and overlap.
+		await sliceOne(doc, rootPath, previewFile, { respectVisibility: true });
 
 		const rawTree = {
 			projectName: targetFolder.name,
