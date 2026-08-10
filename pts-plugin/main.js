@@ -25,7 +25,14 @@ const btnReloadPlan = document.getElementById('btnReloadPlan');
 const btnCut = document.getElementById('btnCut');
 const cutBlockedReason = document.getElementById('cutBlockedReason');
 
+const btnDocs = document.getElementById('btnDocs');
+const btnCopyCmd = document.getElementById('btnCopyCmd');
+const snipSlug = document.getElementById('snipSlug');
+const snipSection1 = document.getElementById('snipSection1');
+const snipSection2 = document.getElementById('snipSection2');
+
 let currentPlan = null;
+let cutDisabled = true;
 
 function log(msg) {
 	statusLog.innerText = msg;
@@ -118,7 +125,7 @@ function showPath(doc, path) {
 	for (const idx of path) {
 		const l = layers[idx];
 		l.visible = true;
-		layers = isGroup(l) ? l.layers : [];
+		layers = isGroup(layer) ? l.layers : [];
 	}
 }
 function captureVisibleRecursive(layers, map) {
@@ -309,6 +316,55 @@ function updateSummary() {
 	cntLayers.innerText = ctx.counts.total;
 }
 
+// Keep the "Next step" snippet showing the real slug / section name.
+function updateSnippet(slug, sectionName) {
+	snipSlug.innerText = slug || '<slug>';
+	snipSection1.innerText = sectionName || '<Section>';
+	snipSection2.innerText = sectionName || '<Section>';
+}
+
+btnCopyCmd.addEventListener('click', async () => {
+	const cmd = `/gen-section ${currentSlug || '<slug>'}`;
+	try {
+		await require('uxp').clipboard.setContent({ 'text/plain': cmd });
+		btnCopyCmd.innerText = 'Copied';
+		btnCopyCmd.classList.add('is-copied');
+		setTimeout(() => {
+			btnCopyCmd.innerText = 'Copy';
+			btnCopyCmd.classList.remove('is-copied');
+		}, 1400);
+	} catch (err) {
+		log('Clipboard unavailable. Run manually: ' + cmd);
+	}
+});
+
+// An <input> is only as tall as its text line (see .field in style.css — any extra height gets
+// filled with UXP's native grey chrome), so clicks on the padding around it would land on the
+// wrapper and do nothing. Forward them to the input. Parent walk instead of closest(): UXP's DOM
+// is a subset and closest() is not dependable here.
+document.addEventListener('click', (e) => {
+	let n = e.target;
+	while (n && n !== document) {
+		if (n.classList && n.classList.contains('field')) {
+			const input = n.querySelector('input');
+			if (input) input.focus();
+			return;
+		}
+		n = n.parentNode;
+	}
+});
+
+// README.md ships inside the plugin folder, so docs work offline.
+btnDocs.addEventListener('click', async () => {
+	try {
+		const pluginFolder = await fs.getPluginFolder();
+		const readme = await pluginFolder.getEntry('README.md');
+		await require('uxp').shell.openPath(readme.nativePath);
+	} catch (err) {
+		log('Could not open README.md from the plugin folder.');
+	}
+});
+
 btnBrowse.addEventListener('click', async () => {
 	try {
 		const folder = await fs.getFolder();
@@ -342,6 +398,7 @@ btnAnalyze.addEventListener('click', async () => {
 	if (!rootPath) return log('Could not find the selected layer in the document.');
 
 	currentSlug = slug;
+	updateSnippet(slug, sectionName);
 	ctx = { counts: { images: 0, text: 0, total: 0 } };
 	let varyingImagePolicy = 'api-slot';
 	try {
@@ -453,7 +510,10 @@ function buildAssetIndex(root) {
 function updateCutGate(entries) {
 	const total = entries.length;
 	const pending = entries.filter((e) => nodeNeedsReview(e.node)).length;
-	btnCut.disabled = pending > 0 && !chkSkipReview.checked;
+	// <div>, not <button> (UXP paints native chrome over styled buttons) — so gate with a
+	// class instead of the disabled property, and enforce it in the click handler.
+	cutDisabled = pending > 0 && !chkSkipReview.checked;
+	btnCut.classList.toggle('is-disabled', cutDisabled);
 	cutBlockedReason.innerText = pending > 0 ? `${pending} node(s) not yet reviewed.` : '';
 	if (reviewProgress) {
 		reviewProgress.textContent = `${total - pending} / ${total} reviewed`;
@@ -499,7 +559,8 @@ function subRoleHint(node) {
 function renderCard(entry) {
 	const { node, trail } = entry;
 	const el = document.createElement('div');
-	el.className = 'review-card' + (nodeNeedsReview(node) ? ' review-card--pending' : '');
+	// Both states get an explicit class — a `:not(--pending)` rule did not match reliably in UXP.
+	el.className = 'review-card ' + (nodeNeedsReview(node) ? 'review-card--pending' : 'review-card--done');
 
 	const main = document.createElement('div');
 	main.className = 'review-card__main';
@@ -528,6 +589,7 @@ function renderCard(entry) {
 	reviewedChk.addEventListener('change', () => {
 		node.needsReview = !reviewedChk.checked;
 		el.classList.toggle('review-card--pending', !reviewedChk.checked);
+		el.classList.toggle('review-card--done', reviewedChk.checked);
 		updateCutGate(collectAnnotatedNodes(currentPlan.root));
 	});
 	reviewedLabel.appendChild(reviewedChk);
@@ -558,8 +620,8 @@ function renderCard(entry) {
 	seg.className = 'segmented';
 	const opts = subRoleOptions(entry);
 	const buttons = opts.map((opt) => {
-		const b = document.createElement('button');
-		b.type = 'button';
+		const b = document.createElement('div');
+		b.setAttribute('role', 'button');
 		b.className = 'segmented__btn' + (node.subRole === opt.value ? ' segmented__btn--active' : '');
 		b.textContent = opt.label;
 		b.addEventListener('click', () => {
@@ -579,11 +641,15 @@ function renderCard(entry) {
 		const isDynamic = node.subRole === 'dynamic-text' || node.subRole === 'dynamic-image';
 		apiWrap.innerHTML = '';
 		if (isDynamic) {
+			// .field wrapper carries the frame — a bare <input> would pick up UXP's native chrome.
+			const field = document.createElement('div');
+			field.className = 'field field--sm';
 			const input = document.createElement('input');
 			input.placeholder = 'API field (e.g. avatarUrl)';
 			input.value = node.apiHint || '';
 			input.addEventListener('input', () => { node.apiHint = input.value; });
-			apiWrap.appendChild(input);
+			field.appendChild(input);
+			apiWrap.appendChild(field);
 		} else {
 			const hint = document.createElement('span');
 			hint.className = 'review-card__hint';
@@ -600,6 +666,7 @@ function renderCard(entry) {
 }
 
 btnCut.addEventListener('click', async () => {
+	if (cutDisabled) return;
 	const doc = app.activeDocument;
 	if (!doc) return log('No document open!');
 	if (!currentPlan) return log('plan.json not loaded.');

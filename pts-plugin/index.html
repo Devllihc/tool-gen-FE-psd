@@ -12,18 +12,30 @@
         <span class="brand__title">PTS Slicer</span>
         <span class="brand__sub">layer tree → images + spec</span>
       </span>
+      <div role="button" tabindex="0" id="btnDocs" class="brand__docs" title="Open the PTS Slicer README">Docs ↗</div>
     </header>
+
+    <div class="stack">
+      <span class="stack__chip"><span class="stack__dot stack__dot--ps"></span>Photoshop</span>
+      <span class="stack__arrow">→</span>
+      <span class="stack__chip"><span class="stack__dot stack__dot--spec"></span>design-spec.json</span>
+      <span class="stack__arrow">→</span>
+      <span class="stack__chip"><span class="stack__dot stack__dot--tsx"></span>.tsx</span>
+      <span class="stack__chip"><span class="stack__dot stack__dot--scss"></span>.scss</span>
+      <span class="stack__arrow">→</span>
+      <span class="stack__chip"><span class="stack__dot stack__dot--claude"></span>Claude Code</span>
+    </div>
 
     <section class="step">
       <div class="step__head"><span class="step__num">01</span><span class="step__name">Target</span></div>
       <div class="step__body">
         <label class="lbl" for="projectPath">Repo folder</label>
         <div class="row">
-          <input type="text" id="projectPath" placeholder="No folder selected…" readonly/>
-          <button id="btnBrowse" class="btn btn--ghost">Browse</button>
+          <div class="field"><input type="text" id="projectPath" placeholder="No folder selected…" readonly/></div>
+          <div role="button" tabindex="0" id="btnBrowse" class="btn btn--ghost">Browse</div>
         </div>
         <label class="lbl" for="sectionName">Section name <span class="lbl__hint">blank = derive from group name</span></label>
-        <input type="text" id="sectionName" placeholder="e.g. Section3Predict"/>
+        <div class="field"><input type="text" id="sectionName" placeholder="e.g. Section3Predict"/></div>
       </div>
     </section>
 
@@ -31,7 +43,7 @@
       <div class="step__head"><span class="step__num">02</span><span class="step__name">Analyze</span></div>
       <div class="step__body">
         <p class="hint">Select <strong>1 group / frame</strong> in Layers → scan structure &amp; classify static/dynamic. <em>No images cut yet.</em></p>
-        <button id="btnAnalyze" class="btn btn--accent btn--block">Analyze structure</button>
+        <div role="button" tabindex="0" id="btnAnalyze" class="btn btn--accent btn--block">Analyze structure</div>
         <div class="stats">
           <div class="stat"><span class="stat__num" id="cntImages">0</span><span class="stat__lbl">img</span></div>
           <div class="stat"><span class="stat__num" id="cntText">0</span><span class="stat__lbl">text</span></div>
@@ -49,14 +61,88 @@
           </span>
           <span class="review-progress" id="reviewProgress"></span>
           <span class="toolbar__actions">
-            <button id="btnReloadPlan" class="btn btn--mini" title="Reload plan.json">🔄</button>
-            <button id="btnOpenPlan" class="btn btn--mini" title="Open plan.json externally">📄</button>
+            <div role="button" tabindex="0" id="btnReloadPlan" class="btn btn--mini" title="Reload plan.json">🔄</div>
+            <div role="button" tabindex="0" id="btnOpenPlan" class="btn btn--mini" title="Open plan.json externally">📄</div>
           </span>
         </div>
         <div id="reviewList"></div>
         <label class="toggle toggle--warn"><input type="checkbox" id="chkSkipReview"/><span>Skip warnings, cut anyway</span></label>
-        <button id="btnCut" class="btn btn--accent btn--block" disabled>✂️ Confirm &amp; Cut images</button>
+        <div role="button" tabindex="0" id="btnCut" class="btn btn--accent btn--block is-disabled">Confirm &amp; Cut images</div>
         <div id="cutBlockedReason" class="flag"></div>
+      </div>
+    </section>
+
+    <section class="step">
+      <div class="step__head"><span class="step__num">04</span><span class="step__name">Next step</span></div>
+      <div class="step__body">
+        <div class="code">
+          <div class="code__head">
+            <span class="code__title">Claude Code · target repo</span>
+            <div role="button" tabindex="0" id="btnCopyCmd" class="code__copy" title="Copy command">Copy</div>
+          </div>
+          <div class="code__body">
+            <div class="code__line"><span class="code__ln">1</span><span class="code__txt"><span class="s-com"># after Cut — run in the target React repo</span></span></div>
+            <div class="code__line"><span class="code__ln">2</span><span class="code__txt"><span class="s-cmd">/gen-section</span> <span class="s-slug" id="snipSlug">&lt;slug&gt;</span></span></div>
+            <div class="code__line"><span class="code__ln">3</span><span class="code__txt"><span class="s-com"># generates</span></span></div>
+            <div class="code__line"><span class="code__ln">4</span><span class="code__txt"><span class="s-pun">→</span> src/pages/<span class="s-slug" id="snipSection1">&lt;Section&gt;</span>/<span class="s-key">index.tsx</span></span></div>
+            <div class="code__line"><span class="code__ln">5</span><span class="code__txt"><span class="s-pun">→</span> src/pages/<span class="s-slug" id="snipSection2">&lt;Section&gt;</span>/<span class="s-key">Style.module.scss</span></span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="step">
+      <div class="step__head step__head--ref"><span class="step__tag">REF</span><span class="step__name">Role cheatsheet</span></div>
+      <div class="step__body">
+        <p class="hint">What each <strong>subRole</strong> in step 03 produces.</p>
+        <div class="cmp">
+          <div class="cmp__row cmp__row--head">
+            <span class="cmp__cell cmp__cell--lbl"></span>
+            <span class="cmp__cell">Static</span>
+            <span class="cmp__cell">Dynamic</span>
+            <span class="cmp__cell">Per-item</span>
+          </div>
+          <div class="cmp__row">
+            <span class="cmp__cell cmp__cell--lbl">Cuts</span>
+            <span class="cmp__cell"><span class="cmp__num">1</span></span>
+            <span class="cmp__cell"><span class="cmp__num">1</span> demo</span>
+            <span class="cmp__cell"><span class="cmp__num">N</span></span>
+          </div>
+          <div class="cmp__row">
+            <span class="cmp__cell cmp__cell--lbl">apiHint</span>
+            <span class="cmp__cell cmp__no">—</span>
+            <span class="cmp__cell cmp__yes">required</span>
+            <span class="cmp__cell cmp__no">—</span>
+          </div>
+          <div class="cmp__row">
+            <span class="cmp__cell cmp__cell--lbl">Output</span>
+            <span class="cmp__cell">baked <span class="cd">&lt;img&gt;</span></span>
+            <span class="cmp__cell">API <span class="cd">prop</span></span>
+            <span class="cmp__cell">asset <span class="cd">[]</span></span>
+          </div>
+          <div class="cmp__row">
+            <span class="cmp__cell cmp__cell--lbl">Use when</span>
+            <span class="cmp__cell">frame, decor, label</span>
+            <span class="cmp__cell">API feeds it</span>
+            <span class="cmp__cell">fixed design per item</span>
+          </div>
+        </div>
+
+        <p class="hint" style="margin-top:14px">Editable in <span class="cd s-key">plan.json</span> — then hit 🔄 Reload.</p>
+        <div class="code">
+          <div class="code__head">
+            <span class="code__title">plan.json · node shape</span>
+          </div>
+          <div class="code__body">
+            <div class="code__line"><span class="code__ln">1</span><span class="code__txt"><span class="s-pun">{</span></span></div>
+            <div class="code__line"><span class="code__ln">2</span><span class="code__txt">  <span class="s-key">"role"</span><span class="s-pun">:</span> <span class="s-str">"asset"</span><span class="s-pun">,</span></span></div>
+            <div class="code__line"><span class="code__ln">3</span><span class="code__txt">  <span class="s-key">"subRole"</span><span class="s-pun">:</span> <span class="s-str">"dynamic"</span><span class="s-pun">,</span></span></div>
+            <div class="code__line"><span class="code__ln">4</span><span class="code__txt">  <span class="s-key">"apiHint"</span><span class="s-pun">:</span> <span class="s-str">"avatarUrl"</span><span class="s-pun">,</span></span></div>
+            <div class="code__line"><span class="code__ln">5</span><span class="code__txt">  <span class="s-key">"needsReview"</span><span class="s-pun">:</span> <span class="s-kw">false</span><span class="s-pun">,</span></span></div>
+            <div class="code__line"><span class="code__ln">6</span><span class="code__txt">  <span class="s-key">"bounds"</span><span class="s-pun">:</span> <span class="s-pun">{</span> <span class="s-key">"w"</span><span class="s-pun">:</span> <span class="s-num">96</span><span class="s-pun">,</span> <span class="s-key">"h"</span><span class="s-pun">:</span> <span class="s-num">96</span> <span class="s-pun">}</span></span></div>
+            <div class="code__line"><span class="code__ln">7</span><span class="code__txt"><span class="s-pun">}</span></span></div>
+          </div>
+        </div>
       </div>
     </section>
 

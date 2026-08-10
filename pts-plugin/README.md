@@ -26,13 +26,17 @@ Plugin này (panel UXP) **project-independent** — nó sống ở một chỗ t
 ### Bước 1 — Photoshop (panel)
 
 1. Mở PSD, chọn **1 group/frame** trong bảng Layers.
-2. Panel: **Browse** → chọn thư mục gốc repo dự án đích. Đặt tên section (tùy chọn; mặc định lấy từ tên group).
-3. Bấm **🔍 Phân tích cấu trúc**. Panel sẽ:
+2. Panel bước **01 · Target**: **Browse** → chọn thư mục gốc repo dự án đích. Đặt tên section (tùy chọn; mặc định lấy từ tên group).
+3. Bước **02 · Analyze**: bấm **Analyze structure**. Panel sẽ:
    - Đọc cây layer, tự tính `subRole` cho mọi asset/text và mọi phần tử con của list.
    - Xuất `preview.png` + ghi `raw-tree.json` **và** `plan.json` vào `.pts-cache/<slug>/`.
-   - **Hiện luôn review cards.**
-4. Duyệt: node nào `needsReview` (tool không chắc — vd bệ đổi màu theo state) sẽ được lọc hiện. Chỉnh dropdown `subRole`/`apiHint` nếu cần, tick **✓ Đã duyệt**. (Bật/tắt "Chỉ hiện node cần review" để xem tất cả.)
-5. Bấm **✂️ Xác nhận & Cắt ảnh** (khoá đến khi hết node chưa duyệt, hoặc tick "Bỏ qua cảnh báo, cắt luôn"). Panel cắt ảnh phẳng vào `public/images/` và ghi `design-spec.json`.
+   - **Hiện luôn** bước **03 · Review & Cut** với review cards.
+4. Duyệt: node nào `needsReview` (tool không chắc — vd bệ đổi màu theo state) sẽ được lọc hiện. Chỉnh segmented control `subRole` / ô `apiHint` nếu cần, tick **Reviewed**. (Bật/tắt "Only needs-review" để xem tất cả; số đếm ở toolbar cho biết đã duyệt bao nhiêu.)
+5. Bấm **Confirm & Cut images** (nút xám-khoá đến khi hết node chưa duyệt, hoặc tick "Skip warnings, cut anyway"). Panel cắt ảnh phẳng vào `public/images/` và ghi `design-spec.json`.
+6. Bước **04 · Next step** tự điền lệnh `/gen-section <slug>` theo section vừa phân tích — bấm **Copy** để lấy lệnh dán sang Claude Code.
+
+> Bước **REF · Role cheatsheet** ở cuối panel chỉ để tra cứu nhanh Static/Dynamic/Per-item (số ảnh cắt, có cần `apiHint` không, output gì) khi phân vân chọn `subRole` ở bước 03 — không thao tác gì ở đó.
+> Nút **Docs ↗** trên header mở thẳng file README này (đọc từ thư mục cài plugin, không cần mạng).
 
 ### Bước 2 — Terminal (trong repo dự án đích)
 
@@ -42,7 +46,7 @@ bun run gen-section .pts-cache/<slug>/design-spec.json
 
 `tools/gen-from-psd/index.js` (trong repo đích) chỉ là delegator — nó tìm `design-spec.json`, spawn `claude -p` để chạy đúng rule trong **`.claude/commands/gen-section.md`** (nguồn chân lý duy nhất cho bước này). Command đọc `design-spec.json` + `CLAUDE.md` của repo → sinh `src/pages/<Section>/` (index.tsx, components/, Style.module.scss), rồi tự chạy `bun run generate-css`.
 
-> Muốn xem/steer từng bước thay vì chạy non-interactive: mở phiên Claude Code trong repo đích rồi gõ `/gen-section <slug>` trực tiếp.
+> Muốn xem/steer từng bước thay vì chạy non-interactive: mở phiên Claude Code trong repo đích rồi gõ `/gen-section <slug>` trực tiếp (đúng lệnh panel đã copy sẵn ở bước 04).
 
 ---
 
@@ -54,7 +58,7 @@ Chỉ chạy khi muốn AI (Claude) **đặt tên `apiHint` đẹp** hoặc **g�
 bun run gen-section --plan <slug>
 ```
 
-`tools/gen-from-psd/plan.js` (trong repo đích) cũng chỉ là delegator, giống hệt `index.js` ở trên — nó đọc `raw-tree.json` + `preview.png`, spawn `claude -p` để chạy đúng rule trong **`.claude/commands/gen-plan.md`** (nguồn chân lý duy nhất cho bước này, y như `/gen-section`), rồi ghi đè `plan.json` bằng bản đã tinh chỉnh. Sau đó quay lại panel bấm **🔄 Tải lại** để nạp bản mới. Nếu không có `claude` trên PATH, hoặc AI chạy lỗi/không ghi được `plan.json` → fallback giữ nguyên phân loại cấu trúc (không đổi gì).
+`tools/gen-from-psd/plan.js` (trong repo đích) cũng chỉ là delegator, giống hệt `index.js` ở trên — nó đọc `raw-tree.json` + `preview.png`, spawn `claude -p` để chạy đúng rule trong **`.claude/commands/gen-plan.md`** (nguồn chân lý duy nhất cho bước này, y như `/gen-section`), rồi ghi đè `plan.json` bằng bản đã tinh chỉnh. Sau đó quay lại panel bấm **🔄** (Reload plan.json, ở toolbar bước 03) để nạp bản mới. Nếu không có `claude` trên PATH, hoặc AI chạy lỗi/không ghi được `plan.json` → fallback giữ nguyên phân loại cấu trúc (không đổi gì).
 
 > Muốn xem/steer từng bước thay vì chạy non-interactive: mở phiên Claude Code trong repo đích rồi gõ `/gen-plan <slug>` trực tiếp.
 
@@ -152,12 +156,14 @@ Cutter cắt thêm 1 ảnh dùng chung tên gốc: `frame2suutapthe__buc.png` + 
 | File | Vai trò |
 |---|---|
 | `manifest.json`, `index.html`, `style.css` | Vỏ panel UXP |
-| `main.js` | Điều phối: phân tích, review UI, cắt, stamping. Gọi `classifyList`/`planCutJobs`/`textUtils` |
+| `main.js` | Điều phối: phân tích, review UI, cắt, stamping, copy-command, mở README. Gọi `classifyList`/`planCutJobs`/`textUtils` |
 | `classifyList.js` | Thuần — logic "gom cái giống, phơi cái khác" + policy (testable ngoài Photoshop) |
 | `planCutJobs.js` | Thuần — chọn job cắt + `validatePlan` |
 | `textUtils.js` | Thuần — `deburr`/`toPascal`/`toSlug`/`fileSafe` |
 
 Ba file thuần (`classifyList`, `planCutJobs`, `textUtils`) verify được bằng `bun -e` không cần Photoshop; `main.js` là UXP-only, chỉ `node --check` được.
+
+> **UXP dùng Chromium đời cũ** — mọi nút bấm trong panel là `<div role="button">` chứ không phải `<button>` thật (UXP vẽ đè chrome native lên `<button>`, mất style); trạng thái khoá dùng class `is-disabled` + chặn trong click handler, không dùng thuộc tính `disabled`. Nếu sửa panel, giữ đúng convention này.
 
 ---
 
@@ -169,7 +175,9 @@ Adobe UXP Developer Tool → **Add Plugin** → chọn `manifest.json` này → 
 
 ## Troubleshooting
 
-- **"Chưa có plan.json"** khi bấm 🔄 Tải lại → bấm 🔍 Phân tích cấu trúc trước.
-- **Nút ✂️ Cắt bị khoá** → còn node `needsReview` chưa tick "✓ Đã duyệt" (hoặc tick "Bỏ qua cảnh báo, cắt luôn").
+- **"No plan.json yet"** khi bấm 🔄 (Reload plan.json) → bấm **Analyze structure** trước.
+- **Nút "Confirm & Cut images" bị khoá (xám)** → còn node `needsReview` chưa tick "Reviewed" (hoặc tick "Skip warnings, cut anyway").
 - **generate-css lỗi** → chạy tay `bun run generate-css` trong repo đích; kiểm tên ảnh có đúng BEM không.
-- **Ảnh item động ra `static-asset`** → 8 instance dùng chung 1 layer (cùng tên+size) nên tool đọc là tĩnh; đổi tay ở review hoặc mark `[bind:xxx]` trong PSD.
+- **Ảnh item động ra `static-asset`** → nhiều instance dùng chung 1 layer (cùng tên+size) nên tool đọc là tĩnh; đổi tay ở review hoặc mark `[bind:xxx]` trong PSD.
+- **Bấm Docs ↗ không mở được README** → panel không tìm thấy `README.md` trong thư mục cài plugin (bị xoá/đổi tên) — kiểm tra file này vẫn nằm cạnh `manifest.json`.
+- **Copy ở bước 04 không có gì trong clipboard** → UXP clipboard API không khả dụng trên máy này; status log sẽ in sẵn lệnh `/gen-section <slug>` để copy tay.

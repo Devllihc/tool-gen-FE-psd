@@ -1,20 +1,30 @@
 :root {
-  --bg: #14161b;
-  --surface: #1b1e25;
-  --surface-2: #22262f;
-  --line: #2c313b;
-  --line-strong: #3a414d;
-  --text: #e9ecf1;
-  --text-dim: #939aa6;
-  --text-faint: #5c636f;
-  --accent: #f2a93b;
-  --accent-hi: #ffc25e;
-  --accent-dim: rgba(242, 169, 59, 0.14);
-  --flag: #6fb2ff;
-  --warn: #ffb454;
+  --bg: #0f172a;
+  --surface: #1b2336;
+  --surface-2: #222c42;
+  --line: #2f3b52;
+  --line-strong: #475569;
+  --text: #f8fafc;
+  --text-dim: #94a3b8;
+  --text-faint: #76849b; /* >=3:1 on every surface incl. --surface-2 */
+  --accent: #22c55e;
+  --accent-hi: #4ade80;
+  --accent-dim: rgba(34, 197, 94, 0.14);
+  --accent-ink: #052e16;
+  --flag: #82aaff;
+  --warn: #fbbf24;
   --good: #4ade80;
   --radius: 7px;
   --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* code wells + syntax highlighting (all >= 4.5:1 on --code-bg) */
+  --code-bg: #0b1120;
+  --syn-plain: #cbd5e1;
+  --syn-keyword: #c792ea;
+  --syn-string: #22c55e;
+  --syn-number: #f78c6c;
+  --syn-key: #82aaff;
+  --syn-comment: #7d8ba1;
 }
 
 html { height: 100%; }
@@ -25,7 +35,7 @@ body {
   overflow-y: auto;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
   background:
-    radial-gradient(120% 60% at 100% 0%, rgba(242, 169, 59, 0.05), transparent 60%),
+    radial-gradient(120% 60% at 100% 0%, rgba(34, 197, 94, 0.06), transparent 60%),
     var(--bg);
   color: var(--text);
   margin: 0;
@@ -50,7 +60,7 @@ body {
   height: 26px;
   border-radius: 3px;
   background: linear-gradient(180deg, var(--accent-hi), var(--accent));
-  box-shadow: 0 0 12px rgba(242, 169, 59, 0.5);
+  box-shadow: 0 0 12px rgba(34, 197, 94, 0.5);
   margin-right: 10px;
 }
 .brand__text { display: flex; flex-direction: column; }
@@ -79,6 +89,7 @@ body {
 .step:nth-of-type(2) { animation-delay: 0.04s; }
 .step:nth-of-type(3) { animation-delay: 0.08s; }
 .step:nth-of-type(4) { animation-delay: 0.12s; }
+.step:nth-of-type(5) { animation-delay: 0.16s; }
 
 @keyframes rise {
   from { opacity: 0; transform: translateY(6px); }
@@ -98,7 +109,7 @@ body {
   font-weight: 700;
   color: var(--accent);
   background: var(--accent-dim);
-  border: 1px solid rgba(242, 169, 59, 0.35);
+  border: 1px solid rgba(34, 197, 94, 0.35);
   border-radius: 4px;
   padding: 3px 6px;
   letter-spacing: 0.5px;
@@ -130,53 +141,75 @@ body {
   font-weight: 400;
 }
 
-.row { display: flex; flex-direction: row; }
+.row { display: flex; flex-direction: row; align-items: stretch; }
 .row > * + * { margin-left: 8px; }
-.row input { flex: 1; margin-bottom: 0; }
-.row .btn { margin-bottom: 0; white-space: nowrap; }
+.row .field { flex: 1; margin-bottom: 0; }
+/* match the adjacent .field height so the pair lines up (.btn is inline-flex, text stays centred) */
+.row .btn { margin-bottom: 0; white-space: nowrap; height: 38px; padding-top: 0; padding-bottom: 0; }
 
+/* Inputs are deliberately left UNSTYLED — no background, no border, no colour, no padding.
+   UXP renders <input> as a native widget with a minimum height CSS can't shrink, and our
+   background-color only ever painted the text line box, so every attempt to fill or frame it
+   left grey native chrome showing (a ring around the fill, then bars above and below the text).
+   Letting it render natively is uniform and readable; .field below is only a sizing box now.
+   Do NOT re-add background-color/colour here — that is what produced the grey bars.
+   Horizontal padding IS safe: the grey only ever appeared where OUR fill left the padding area
+   uncovered, and there is no fill now — the native widget paints the padding uniformly. Keep
+   vertical padding at 0 though, or the box grows past .field's height. */
 input,
 select {
   box-sizing: border-box;
   width: 100%;
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  color: var(--text);
-  padding: 9px 12px;
-  border-radius: 6px;
-  font-size: 14px;
-  margin-bottom: 8px;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-}
-input::placeholder { color: var(--text-faint); }
-input:focus,
-select:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent-dim);
-}
-input[readonly] { color: var(--text-dim); }
-input[type="checkbox"] {
-  width: auto;
   margin: 0;
+  padding: 0 10px;
+  font-size: 14px;
+  font-family: inherit;
+}
+input:focus,
+select:focus { outline: none; }
+input[type="checkbox"] {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  padding: 0; /* must reset: the shared rule's horizontal padding would crush a 15px box */
   accent-color: var(--accent);
-  transform: scale(1.1);
 }
 
-button {
-  appearance: none;
-  -webkit-appearance: none;
+/* Sizing box only — no background/border/padding of its own, so the native field fills it
+   edge to edge and there is no second frame around it. */
+.field {
+  box-sizing: border-box;
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  height: 38px;
+  margin-bottom: 8px;
 }
-button:focus {
-  outline: none;
+.field input { flex: 1; min-width: 0; height: 100%; }
+.field--sm {
+  height: 33px; /* matches .segmented, its neighbour in .review-card__controls */
+  margin-bottom: 0;
 }
+.field--sm input { font-size: 12.5px; padding: 0 8px; }
+
+/* Every clickable control here is a <div role="button">, NOT a <button>.
+   On Photoshop 27's UXP, a real <button> gets native chrome painted over its custom
+   background — it renders as a flat grey fill with an accent-coloured triangle poking out
+   of each rounded corner — and `appearance: none` does NOT suppress it (that workaround
+   only held on older PS builds). Divs have no native chrome, so they style reliably.
+   Consequences, don't undo them: no `disabled` property (use `.is-disabled` + a guard in
+   the click handler), and no box-shadow focus ring (UXP mishandles it here). */
 .btn {
   box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 1px solid transparent;
   color: #fff;
   padding: 10px 14px;
   border-radius: 6px;
   cursor: pointer;
+  user-select: none;
   font-size: 14px;
   font-weight: 600;
   transition: transform 0.1s ease, background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
@@ -186,10 +219,12 @@ button:focus {
 .btn--block { width: 100%; }
 .btn--accent {
   background: linear-gradient(180deg, var(--accent-hi), var(--accent));
-  color: #241a06;
+  color: var(--accent-ink);
 }
 .btn--accent:hover { background: linear-gradient(180deg, var(--accent-hi), var(--accent-hi)); }
-.btn--accent:disabled {
+/* .is-disabled replaces :disabled — these are divs, so the property does not exist */
+.btn--accent.is-disabled,
+.btn--accent.is-disabled:hover {
   background: var(--surface-2);
   color: var(--text-faint);
   border-color: var(--line);
@@ -260,7 +295,7 @@ button:focus {
   display: flex;
   align-items: center;
   font-size: 13px;
-  color: var(--text-dim);
+  color: var(--text);
   cursor: pointer;
   user-select: none;
   margin-top: 10px;
@@ -281,7 +316,7 @@ button:focus {
 }
 .flag:not(:empty) {
   padding: 8px 10px;
-  background: rgba(255, 180, 84, 0.08);
+  background: rgba(251, 191, 36, 0.08);
   border-left: 2px solid var(--warn);
   border-radius: 0 4px 4px 0;
 }
@@ -300,7 +335,7 @@ button:focus {
   font-size: 11px;
   line-height: 1.55;
   color: var(--text-dim);
-  background: #0f1116;
+  background: var(--code-bg);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 10px 12px;
@@ -353,8 +388,11 @@ button:focus {
 }
 .review-card:last-child { margin-bottom: 0; }
 .review-card:hover { box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3); }
+/* State comes from an explicit --pending / --done class set in main.js. Don't switch these back
+   to `:not(.review-card--pending)` — that selector did not reliably match in UXP, leaving
+   reviewed cards stuck on the dim base colour. */
 .review-card--pending { border-left-color: var(--warn); }
-.review-card:not(.review-card--pending) { border-left-color: var(--good); }
+.review-card--done { border-left-color: var(--good); }
 .review-card__main { display: block; }
 .review-card__main > * { margin-bottom: 10px; }
 .review-card__main > *:last-child { margin-bottom: 0; }
@@ -376,9 +414,9 @@ button:focus {
   flex: none;
   display: flex;
   align-items: center;
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
-  color: var(--text-faint);
+  color: var(--text-dim);
   cursor: pointer;
   user-select: none;
   padding: 5px 10px;
@@ -387,31 +425,35 @@ button:focus {
   background: var(--surface);
   transition: all 0.15s ease;
 }
-.review-card__reviewed input { margin: 0 5px 0 0; accent-color: var(--good); }
-.review-card--pending .review-card__reviewed { color: var(--warn); border-color: rgba(255, 180, 84, 0.35); }
-.review-card:not(.review-card--pending) .review-card__reviewed { color: var(--good); border-color: rgba(74, 222, 128, 0.3); }
+.review-card__reviewed input { margin: 0 6px 0 0; accent-color: var(--good); }
+.review-card--pending .review-card__reviewed { color: var(--warn); border-color: rgba(251, 191, 36, 0.35); }
+.review-card--done .review-card__reviewed { color: var(--good); border-color: rgba(74, 222, 128, 0.35); }
 .review-card__reason {
   font-size: 11.5px;
   line-height: 1.45;
   color: var(--flag);
-  background: rgba(111, 178, 255, 0.08);
+  background: rgba(130, 170, 255, 0.08);
   padding: 6px 9px;
   border-radius: 4px;
   border-left: 2px solid var(--flag);
 }
+/* a notice to act on, not a success — keep it amber now that accent is green */
 .review-card__variants {
   font-size: 11.5px;
   line-height: 1.45;
-  color: var(--accent-hi);
-  background: var(--accent-dim);
+  color: var(--warn);
+  background: rgba(251, 191, 36, 0.08);
   padding: 6px 9px;
   border-radius: 4px;
-  border-left: 2px solid var(--accent);
+  border-left: 2px solid var(--warn);
 }
 .review-card__controls { display: flex; align-items: center; flex-wrap: wrap; }
 .review-card__controls > * { margin: 0 8px 4px 0; }
 .segmented { display: inline-flex; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 2px; }
 .segmented__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-family: var(--mono);
   font-size: 11px;
   font-weight: 600;
@@ -424,21 +466,224 @@ button:focus {
   padding: 5px 9px;
   margin-right: 2px;
   cursor: pointer;
+  user-select: none;
   transition: all 0.12s ease;
 }
 .segmented__btn:last-child { margin-right: 0; }
 .segmented__btn:hover { color: var(--text); }
-.segmented__btn--active { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: #241a06; }
+.segmented__btn--active { background: linear-gradient(180deg, var(--accent-hi), var(--accent)); color: var(--accent-ink); }
 .review-card__api { flex: 1; min-width: 120px; }
-.review-card__api input {
-  width: 100%;
-  box-sizing: border-box;
-  background-color: #14161b;
-  border: 1px solid var(--line);
-  color: var(--text);
-  padding: 6px 9px;
-  border-radius: 5px;
-  font-size: 12.5px;
-}
-.review-card__api input:focus { outline: none; border-color: var(--accent); }
+/* frame + sizing now come from .field.field--sm (see the note on the input rules above) */
 .review-card__hint { font-size: 11.5px; color: var(--text-faint); font-style: italic; }
+
+/* ── docs link (header, right-aligned) ─────────────────────────────── */
+/* declared after `.brand > * + *` so margin-left:auto wins the tie */
+.brand__docs {
+  flex: none;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  user-select: none;
+  background: var(--surface-2);
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 7px 11px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.brand__docs:hover {
+  color: var(--accent-hi);
+  border-color: var(--accent);
+  background: var(--accent-dim);
+}
+
+/* ── integration strip: PS → spec → code → Claude ──────────────────── */
+/* Text/extension marks in each tool's brand colour — deliberately NOT
+   redrawn brand logotypes (inline SVG is unreliable on UXP/PS 23). */
+.stack {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 0 2px 10px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--line);
+}
+.stack__chip {
+  display: flex;
+  align-items: center;
+  flex: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 4px 7px;
+  margin-bottom: 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--text-dim);
+}
+.stack__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  margin-right: 6px;
+  background: var(--text-faint);
+}
+.stack__dot--ps { background: #31a8ff; }
+.stack__dot--spec { background: var(--syn-key); }
+.stack__dot--tsx { background: #61dafb; }
+.stack__dot--scss { background: #cd6799; }
+.stack__dot--claude { background: #d97757; }
+/* sibling chips (.tsx + .scss) need explicit spacing — flex drops whitespace */
+.stack__chip + .stack__chip { margin-left: 5px; }
+.stack__arrow {
+  flex: none;
+  margin: 0 5px 6px;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+/* ── code snippet preview ──────────────────────────────────────────── */
+.code {
+  background: var(--code-bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.code__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 9px;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+}
+.code__title {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--text-faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-right: 8px;
+}
+.code__copy {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  user-select: none;
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  color: var(--text-dim);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.code__copy:hover { color: var(--accent-hi); border-color: var(--accent); }
+.code__copy.is-copied { color: var(--good); border-color: var(--good); }
+.code__body {
+  padding: 10px 10px 11px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  line-height: 1.75;
+  color: var(--syn-plain);
+}
+.code__line { display: flex; align-items: flex-start; }
+.code__ln {
+  flex: none;
+  width: 15px;
+  margin-right: 9px;
+  text-align: right;
+  color: var(--text-faint);
+  user-select: none;
+}
+.code__txt { flex: 1; min-width: 0; white-space: pre-wrap; word-break: break-word; }
+
+/* syntax tokens — every colour verified >= 4.5:1 on --code-bg */
+.s-kw { color: var(--syn-keyword); }
+.s-str { color: var(--syn-string); }
+.s-num { color: var(--syn-number); }
+.s-key { color: var(--syn-key); }
+.s-com { color: var(--syn-comment); }
+.s-pun { color: var(--text-faint); }
+.s-cmd { color: var(--accent-hi); font-weight: 600; }
+.s-slug { color: var(--syn-number); font-weight: 600; }
+
+/* ── role comparison table (flex; UXP has no <table>/grid/gap) ─────── */
+.cmp { border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.cmp__row { display: flex; align-items: stretch; border-bottom: 1px solid var(--line); }
+.cmp__row:last-child { border-bottom: none; }
+.cmp__row--head { background: var(--surface-2); }
+.cmp__row:not(.cmp__row--head):hover { background: rgba(255, 255, 255, 0.02); }
+.cmp__cell {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 7px 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  text-align: center;
+  color: var(--text);
+  border-left: 1px solid var(--line);
+  word-break: break-word;
+}
+.cmp__cell--lbl {
+  flex: 0 0 74px;
+  text-align: left;
+  padding-left: 9px;
+  border-left: none;
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-faint);
+}
+.cmp__row--head .cmp__cell {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  color: var(--accent-hi);
+}
+.cmp__num { font-family: var(--mono); font-weight: 700; color: var(--syn-number); }
+.cmp__no { color: var(--text-faint); }
+.cmp__yes { color: var(--good); font-weight: 600; }
+/* inline code — <code> is not in the UXP element set, so use a span */
+.cd {
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--syn-key);
+  word-break: break-all;
+}
+
+/* reference block: same shell as .step, no step number */
+.step__head--ref .step__name { color: var(--text-faint); }
+.step__tag {
+  font-family: var(--mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: var(--text-faint);
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 3px 6px;
+  margin-right: 10px;
+}
