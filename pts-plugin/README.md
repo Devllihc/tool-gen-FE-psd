@@ -105,6 +105,22 @@ Với node **asset/text** đơn lẻ và với mỗi **phần tử con của lis
 
 **Vị trí từng phần tử trong instance (`boundsOverride`):** cây chỉ lưu **1 bộ `bounds`** dùng chung cho mọi instance (lấy từ instance mẫu). Đúng khi các instance giống nhau hình học (chỉ khác vị trí ngoài, vd 8 mốc thành tích cùng size). Nếu PSD vẽ khác nhau thật (vd khung thành theo phối cảnh: khung ngoài to hơn khung trong) → node đó có thêm `boundsOverride: { "<instanceIndex 0-based>": {x,y,w,h} }`, chỉ ghi cho instance nào lệch quá 3px so với mẫu — codegen (`/gen-section`) đọc field này để tạo override riêng cho đúng instance đó, thay vì dùng chung 1 bộ số sai cho tất cả.
 
+**Biến thể theo trạng thái (`variants`) — cái `classifyList` không bao giờ thấy được:** phân loại chỉ so **tên layer + kích thước + text**, không bao giờ đọc pixel. Nên một vị trí *cùng tên, cùng size* nhưng **vẽ khác nhau theo trạng thái** (bục xám khi chưa mở, vàng khi đã nhận; thẻ mờ vs sáng) là vô hình với nó — mọi instance gom thành 1 `static-asset`, chỉ 1 ảnh xám được cắt.
+
+Chỗ duy nhất tồn tại khác biệt đó là `preview.png`, nên việc này thuộc về **`/gen-plan`**, không phải plugin. Nó nhìn preview, tra `instanceLayers` (roster layer thật của từng instance mà node `list` mang theo — `{ name, layerId, kind, bounds }`, đệ quy, bounds tương đối theo gốc instance) để **khớp theo tên**, rồi gắn vào node asset tương ứng:
+
+```jsonc
+{ "role": "asset", "name": "BỤC", "layerId": 30535, "subRole": "static-asset",
+  "variants": [ { "key": "claimed", "layerId": 30702 } ] }
+```
+
+Cutter cắt thêm 1 ảnh dùng chung tên gốc: `frame2suutapthe__buc.png` + `frame2suutapthe__buc--claimed.png`; `/gen-section` sinh state class `is-claimed` bằng ảnh thật thay vì giả lập bằng `filter`.
+
+- Khớp theo **tên**, không theo index — instance ở trạng thái khác hay có thêm layer (ruy-băng, huy hiệu) làm lệch mọi index sau nó.
+- `key` là **tên trạng thái** kebab-case (`claimed`, `locked`), không phải index.
+- Không dùng chung với `static-per-instance` (mode đó đã cắt đủ N ảnh) — `validatePlan` chặn.
+- Layer không tìm thấy lúc cắt → panel báo ở mục `SKIPPED` cuối log, `image` để `null`.
+
 > **Không có field cho rotation.** Photoshop không giữ lại góc xoay sau khi Free Transform trên layer raster được commit (pixel đã resample), nên plugin không có gì để đọc/trích xuất. Instance nào bị nghiêng thật (vd nhãn tên ở 2 khung ngoài cùng) phải để `/gen-section` tự nhìn preview và thêm `transform: rotate()` bằng mắt — đúng cách mọi chi tiết trực quan khác trong pipeline này vẫn được xử lý.
 
 ---

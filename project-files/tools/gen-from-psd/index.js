@@ -3,15 +3,6 @@ import path from 'path'
 import { spawnSync } from 'child_process'
 import { fileURLToPath } from 'url'
 
-// Usage: bun run gen-section [slug|path/to/design-spec.json] [--plan] [--dry]
-//
-// THIN, non-interactive fallback for the /gen-section slash command
-// (.claude/commands/gen-section.md), which is the primary, controllable path.
-// It just hands the spec to `claude -p` and tells it to follow that command.
-// The generation RULES live ONLY in the command file (single source of truth) —
-// this script deliberately holds none of them, so the two never drift.
-//   --plan : passthrough to plan.js (the optional AI re-classify step).
-//   --dry  : print the delegator prompt, do not invoke Claude.
 const rawArgs = process.argv.slice(2)
 const dryRun = rawArgs.includes('--dry')
 const positional = rawArgs.filter((a) => !a.startsWith('--'))
@@ -24,7 +15,6 @@ if (rawArgs.includes('--plan')) {
 	process.exit(result.status ?? 0)
 }
 
-// Accept either a slug (frame2suutapthe) or a path to design-spec.json.
 const specArg = positional[0] || 'design-spec.json'
 const specPath = fs.existsSync(path.resolve(process.cwd(), specArg))
 	? specArg

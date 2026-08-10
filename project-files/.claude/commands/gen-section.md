@@ -54,8 +54,14 @@ Work through the phases **in order**.
    existing section in THIS repo — whatever the config names).
    - If that directory has `index.tsx` + `Style.module.scss`, **read both and imitate them
      1:1** — file structure, import set, className conventions, positioning approach,
-     state/loading idioms, image/text helpers. The exemplar is how a section is written
-     *here*; match it.
+     state/loading idioms, image/text helpers, **and literal whitespace style** (tabs vs
+     2-space, quote style) — not just structural conventions. The exemplar is how a section
+     is written *here*; match it — **except** where CLAUDE.md states an explicit, lint-enforced
+     rule (e.g. `indent: tab`) that the exemplar itself predates/violates: a lint rule is the
+     law even when the exemplar doesn't follow it, so match a lint-enforced sibling
+     (another generated section, or any file that passes `bun run lint` clean) instead for
+     that one dimension, and the exemplar for everything lint doesn't govern (e.g. SCSS
+     indentation, quote/semicolon style, where nothing enforces either way).
    - If there is **no exemplar** (new project), skip this and rely on Phase 3 + CLAUDE.md
      — the output will still be structurally correct, just less idiomatic.
 3. **Read the project's `CLAUDE.md`** — the rulebook for framework, styling system, path
@@ -109,6 +115,13 @@ from the exemplar + CLAUDE.md.
   genuinely overlap/scatter, wrap them in **one centered fixed-width box** (frame width,
   `margin: 0 auto`, `position: relative`). Reserve `position:absolute` for the **inner**
   scattered arrangement of a list's instances, inside a relative fixed-size box.
+  **Mixed case** (some root children — a title, a counter — don't overlap anything and become
+  separate flex-flow blocks, while the rest genuinely overlap/scatter into one shared box):
+  the shared box's own height and every child's `top` **must be re-based to that box's own
+  origin** (subtract the Y of whichever of its children starts first), never left as the
+  original frame-relative Y — otherwise the box still reserves the vertical space the
+  flow blocks above it already consume a second time, opening a dead gap between them
+  exactly as tall as the flow blocks' own Y-range in the spec.
 - **Every `position:absolute` container needs an explicit size.** If a box is
   `position:absolute` and every one of its own direct children is *also*
   `position:absolute` (the norm for a list's per-instance `--N` wrapper, or any inner
@@ -141,6 +154,13 @@ from the exemplar + CLAUDE.md.
   that specific instance: if it looks visibly tilted compared to the others (not just a
   different size), add a `transform: rotate(<deg>deg)` on that instance's `--N` override by
   eye, the same way you already read every other visual detail off the preview.
+- **Nested lists/containers:** an `instanceTemplate` child can itself be a `list`
+  (a reward grid inside a card, a star rating, progress pips) or a `container`/`component`.
+  Apply these same rules recursively — a nested list becomes a `.map()` inside the outer
+  `.map()`, with its own demo array and its own empty-state. Its `bounds`, `instanceOffsets`
+  and children's `bounds` are re-based to **its own** origin, not the outer instance's, so
+  position the nested box absolutely from its `bounds` and its children from theirs — do not
+  add the outer offsets again.
 - **role `asset`, subRole `static-asset`:** fixed shared visual. A frame / background /
   decoration → CSS `background: url('/images/<node.image>')`; content sitting in the flow →
   an image tag. `node.image` is the **real cut filename** — read it, never guess. Use the
@@ -149,6 +169,20 @@ from the exemplar + CLAUDE.md.
   value (named by `node.apiHint`) with the cut asset (`node.image`) as the **demo fallback**.
 - **role `asset`, subRole `static-per-instance`:** N distinct fixed images (`node.images[]`,
   one per instance) → render by data index. Not an API slot.
+- **`node.variants[]` (any asset node, orthogonal to `subRole`):** the same element cut a
+  second time in a different **state** — `[{ key: "claimed", image: "slug__buc--claimed.png" }]`
+  alongside the base `node.image`. Render the base normally, then override it under an
+  `is-<key>` state class driven by the item's own flag:
+  ```scss
+  &__buc { background: url('/images/slug__buc.png'); }
+  .is-claimed & { background-image: url('/images/slug__buc--claimed.png'); }
+  ```
+  Use the real variant image — **never** approximate a state with `filter: sepia()/hue-rotate()`
+  when a variant image exists. Add the matching boolean to the demo array (`claimed?: boolean`)
+  and mark the item the preview shows in that state. Remember the state class itself is a CSS
+  Module: `item.claimed && style['is-claimed']`, never a bare `'is-claimed'` string.
+  If `variants[i].image` is `null` the cut failed (the panel reports it under `SKIPPED`) —
+  fall back to the base image and **flag it in the Phase 4 report**, don't silently ignore it.
 - **role `text`, subRole `text`:** hardcode `node.text` — **except** a section title/subtitle
   block, which uses the project's dynamic-copy idiom if it has one (see exemplar/CLAUDE.md).
 - **role `text`, subRole `dynamic-text`:** bind to `node.apiHint`/`node.bind`; `node.text` is
@@ -161,9 +195,21 @@ with the project's viewport helper.
 
 ## Phase 4 — Finalize & verify
 
-1. Run `bun run generate-css` (regenerates image-derived SCSS from the new filenames).
-2. Run `bun run lint` (and `bun run build-f` if you want a fast build check); fix until clean.
-3. **Report:**
+1. **Title/subtitle self-check** — this is the single rule most often missed. If this
+   section has a title/subtitle, re-read what you just wrote and confirm it's bound through
+   the project's dynamic-copy idiom (e.g. `getParam(...)` + `sanitizeHTML`), **not** left as
+   text baked into a static `background:url()` cut — even when the spec/preview shows it as
+   one flattened asset. A baked title can never be edited without a PSD re-cut; if the spec's
+   title node is `static-asset`, that is exactly the "static→dynamic promotion" Phase 2 calls
+   for, not an exception to it.
+2. **Asset-existence check** — grep the code you just wrote for every `/images/<file>`
+   reference (`background:url()` and `<img>`/component `src`, including per-instance,
+   `--demo` fallbacks and `--<key>` state variants) and confirm each file actually exists
+   under `public/images/`. If any is missing, **stop and flag it** — do not report success
+   with a dead image reference.
+3. Run `bun run generate-css` (regenerates image-derived SCSS from the new filenames).
+4. Run `bun run lint` (and `bun run build-f` if you want a fast build check); fix until clean.
+5. **Report:**
    - files created;
    - which nodes became demo data / dynamic slots (the `/implement-api` seam);
    - **Phase 2 validation results** — every spec↔preview mismatch you fixed in code

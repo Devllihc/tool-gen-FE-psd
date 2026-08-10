@@ -2,11 +2,10 @@ const { app, core, constants } = require('photoshop');
 const fs = require('uxp').storage.localFileSystem;
 const { deburr, toPascal, toSlug, fileSafe } = require('./textUtils');
 const { planCutJobs, validatePlan } = require('./planCutJobs');
-const { buildInstanceTemplate } = require('./classifyList');
+const { buildInstanceTemplate, rosterOf, detectLayout, median } = require('./classifyList');
 
 let targetFolder = null;
 
-// UI elements
 const btnBrowse = document.getElementById('btnBrowse');
 const projectPathInput = document.getElementById('projectPath');
 const sectionNameInput = document.getElementById('sectionName');
@@ -31,8 +30,6 @@ let currentPlan = null;
 function log(msg) {
 	statusLog.innerText = msg;
 }
-
-// --- basic helpers -------------------------------------------------------
 
 function isGroup(layer) {
 	try { return layer.kind === constants.LayerKind.GROUP; } catch (e) { return false; }
@@ -64,10 +61,6 @@ function rectOf(layer) {
 }
 function boundsOf(layer) {
 	if (!isGroup(layer)) return rectOf(layer);
-	// A group's own .bounds includes adjustment/no-shape layers (Photoshop reports
-	// those as spanning the whole document), so recompute from only content-bearing
-	// descendants instead of trusting it directly — otherwise any group with e.g. a
-	// grayscale Hue/Saturation adjustment inside reports bounds == full canvas.
 	let acc = null;
 	for (const child of Array.from(layer.layers)) {
 		if (isGroup(child)) { acc = unionRect(acc, boundsOf(child)); continue; }
@@ -84,13 +77,6 @@ function colorHex(color) {
 		return `#${hex(c.red)}${hex(c.green)}${hex(c.blue)}`;
 	} catch (e) { return undefined; }
 }
-function median(arr) {
-	if (!arr.length) return 0;
-	const s = [...arr].sort((a, b) => a - b);
-	const m = Math.floor(s.length / 2);
-	return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-}
-
 async function ensureFolder(root, segments) {
 	let current = root;
 	for (const seg of segments) {
@@ -99,8 +85,6 @@ async function ensureFolder(root, segments) {
 	}
 	return current;
 }
-
-// --- Photoshop tree navigation & export ---------------------------------
 
 function findPathById(layers, id, prefix) {
 	for (let i = 0; i < layers.length; i++) {
@@ -137,11 +121,6 @@ function showPath(doc, path) {
 		layers = isGroup(l) ? l.layers : [];
 	}
 }
-// Snapshot each layer's real (pre-hide) visibility, keyed by layer.id — used to tell a
-// mutually-exclusive tab/phase sibling (hidden in the PSD) from one that's really shown.
-// Keyed by id, not the layer object itself: the Photoshop UXP API does not guarantee the
-// same JS wrapper object across separate `.layers` accesses (same convention as
-// findPathById/layerAtPath elsewhere in this file, which also identify layers by id).
 function captureVisibleRecursive(layers, map) {
 	for (const l of layers) {
 		map.set(l.id, l.visible);
@@ -168,7 +147,7 @@ async function sliceOne(doc, path, file, opts = {}) {
 			const children = isGroup(target) ? target.layers : [];
 			if (originalVisibility) restoreVisibleRecursive(children, originalVisibility);
 			else setVisibleRecursive(children, true);
-			try { await dup.trim(constants.TrimType.TRANSPARENT); } catch (e) { /* transparent → skip */ }
+			try { await dup.trim(constants.TrimType.TRANSPARENT); } catch (e) {}
 			await dup.saveAs.png(file, {}, true);
 		} finally {
 			await dup.closeWithoutSaving();
@@ -176,9 +155,6 @@ async function sliceOne(doc, path, file, opts = {}) {
 	}, { commandName: 'Slice layer' });
 }
 
-// --- structure analysis (markers + auto-detect) --------------------------
-
-// Parse "[list]", "[row]", "[bind:foo]"… out of a layer name.
 function parseMarkers(rawName) {
 	const markers = [];
 	const clean = String(rawName).replace(/\[([^\]]+)\]/g, (_, m) => { markers.push(m.trim().toLowerCase()); return ''; }).trim();
@@ -194,7 +170,6 @@ function parseMarkers(rawName) {
 	return out;
 }
 
-// Shape signature (types + nested names) → detect isomorphic siblings.
 function structureSig(layer, depth) {
 	if (isText(layer)) return 't';
 	if (!isGroup(layer)) return 'i';
@@ -206,46 +181,24 @@ function isAutoList(layer) {
 	if (!isGroup(layer)) return false;
 	const kids = Array.from(layer.layers);
 	const groups = kids.filter(isGroup);
-	if (groups.length < 4) return false;                        // was < 2 — avoid over-listing 2–3 item clusters
-	if (groups.length < kids.length * 0.6) return false;       // mostly groups
+	if (groups.length < 4) return false;
+	if (groups.length < kids.length * 0.6) return false;
 	const counts = {};
 	groups.forEach((k) => { const s = structureSig(k, 2); counts[s] = (counts[s] || 0) + 1; });
 	const dominant = Math.max.apply(null, Object.values(counts));
-	return dominant >= Math.ceil(groups.length * 0.6);         // a dominant repeated structure
+	return dominant >= Math.ceil(groups.length * 0.6);
 }
 
-// A group can be a pure layout wrapper around the real list(s) — e.g. a 12-card shop
-// split into "TRÊN"/"DUOI" row groups of 6 cards each. Neither row group nor the
-// wrapper alone would look like a list from isAutoList at the wrong level, so before
-// giving up and flattening, check whether a descendant group would qualify as a list.
 function hasNestedList(layer) {
 	if (!isGroup(layer)) return false;
 	return Array.from(layer.layers).some((child) => isGroup(child) && (isAutoList(child) || hasNestedList(child)));
 }
 
-// Row vs column vs absolute from a set of absolute bounds.
-function detectLayout(items) {
-	if (items.length < 2) return { direction: 'absolute' };
-	const xs = items.map((i) => i.x), ys = items.map((i) => i.y);
-	const spanX = Math.max(...xs) - Math.min(...xs);
-	const spanY = Math.max(...ys) - Math.min(...ys);
-	const horizontal = spanX >= spanY;
-	const sorted = [...items].sort((a, b) => (horizontal ? a.x - b.x : a.y - b.y));
-	const gaps = [];
-	for (let i = 1; i < sorted.length; i++) {
-		const prev = sorted[i - 1];
-		gaps.push(horizontal ? sorted[i].x - (prev.x + prev.w) : sorted[i].y - (prev.y + prev.h));
-	}
-	if (Math.min(...gaps) < -20) return { direction: 'absolute' }; // overlap → keep absolute
-	return { direction: horizontal ? 'row' : 'column', gap: Math.max(0, Math.round(median(gaps))) };
-}
-
-// Live Photoshop layer → plain descriptor consumed by classifyList (no x/y-independent logic here).
 function describeLayer(layer) {
 	const kind = isText(layer) ? 'text' : (isGroup(layer) ? 'group' : 'image');
 	const m = parseMarkers(layer.name);
-	const d = { kind, name: layer.name, layerId: layer.id, bounds: boundsOf(layer), marker: { role: m.role, bind: m.bind } };
-	if (kind === 'text') { try { d.text = layer.textItem.contents; } catch (e) { /* noop */ } }
+	const d = { kind, name: layer.name, layerId: layer.id, bounds: boundsOf(layer), marker: { role: m.role, bind: m.bind, layout: m.layout } };
+	if (kind === 'text') { try { d.text = layer.textItem.contents; } catch (e) {} }
 	if (kind === 'group') d.children = Array.from(layer.layers).map(describeLayer);
 	return d;
 }
@@ -254,16 +207,14 @@ function collectFields(layer, out) {
 	if (isText(layer)) {
 		const m = parseMarkers(layer.name);
 		let val = '';
-		try { val = layer.textItem.contents; } catch (e) { /* noop */ }
+		try { val = layer.textItem.contents; } catch (e) {}
 		out[m.bind || fileSafe(m.clean) || 'text'] = val;
 		return;
 	}
 	if (isGroup(layer)) for (const c of layer.layers) collectFields(c, out);
 }
 
-// --- spec builder (per run) ----------------------------------------------
-
-let ctx = null; // { counts }
+let ctx = null;
 
 function makeAsset(layer, path, clean) {
 	ctx.counts.images += 1;
@@ -295,20 +246,20 @@ function processNode(layer, path) {
 			reviewReason: null,
 			bounds: boundsOf(layer)
 		};
-		try { node.text = layer.textItem.contents; } catch (e) { /* noop */ }
+		try { node.text = layer.textItem.contents; } catch (e) {}
 		try {
 			const cs = layer.textItem.characterStyle;
 			node.style = { fontSize: cs.size, color: colorHex(cs.color) };
-		} catch (e) { /* noop */ }
+		} catch (e) {}
 		if (m.bind) node.bind = m.bind;
 		return node;
 	}
 
 	const m = parseMarkers(layer.name);
 	let role = m.role;
-	if (!role && isAutoList(layer)) role = 'list';           // B: auto-detect repeated groups
-	if (!role && hasNestedList(layer)) role = 'container';   // a layout wrapper around list(s) below — recurse instead of flattening
-	if (!role) role = 'asset';                               // default: flatten to one PNG
+	if (!role && isAutoList(layer)) role = 'list';
+	if (!role && hasNestedList(layer)) role = 'container';
+	if (!role) role = 'asset';
 
 	if (role === 'asset') return makeAsset(layer, path, m.clean);
 
@@ -318,25 +269,22 @@ function processNode(layer, path) {
 		ctx.counts.total += kids.length;
 		const instanceDescs = kids.map(describeLayer);
 		const listBounds = boundsOf(layer);
-		// Vị trí thật của từng instance so với gốc của list — để codegen đặt tuyệt đối,
-		// tái hiện đúng design (track cong, khung rải trên sân…), không đoán bằng flex.
 		const instanceOffsets = instanceDescs.map((d) => ({ x: d.bounds.x - listBounds.x, y: d.bounds.y - listBounds.y }));
 		const layout = m.layout
 			? { direction: m.layout, gap: Math.round(median(instanceDescs.slice(1).map((it, i) => it.bounds.x - (instanceDescs[i].bounds.x + instanceDescs[i].bounds.w)))) || 0 }
 			: detectLayout(instanceDescs.map((it) => it.bounds));
 		const innerLayout = detectLayout((instanceDescs[0].children || []).map((c) => c.bounds));
 		const instanceTemplate = buildInstanceTemplate(instanceDescs, innerLayout, ctx.policy);
-		return { role: 'list', name: m.clean, component: toPascal(m.clean), layout, bounds: listBounds, count: kids.length, instanceOffsets, instanceTemplate };
+		const instanceLayers = instanceDescs.map((d) => (d.children || []).map((c) => rosterOf(c, d.bounds.x, d.bounds.y)));
+		return { role: 'list', name: m.clean, component: toPascal(m.clean), layout, bounds: listBounds, count: kids.length, instanceOffsets, instanceLayers, instanceTemplate };
 	}
 
-	// component / container → recurse, keep structure
 	const kids = Array.from(layer.layers);
 	const children = kids.map((child, i) => processNode(child, path.concat(i)));
 	const layout = m.layout ? { direction: m.layout, gap: 0 } : detectLayout(children.map((c) => c.bounds));
 	return { role, name: m.clean, layout, bounds: boundsOf(layer), children };
 }
 
-// The selected frame is always a container (never flattened whole).
 function processRoot(layer, path) {
 	const kids = Array.from(layer.layers);
 	const children = kids.map((child, i) => processNode(child, path.concat(i)));
@@ -361,8 +309,6 @@ function updateSummary() {
 	cntLayers.innerText = ctx.counts.total;
 }
 
-// --- UI wiring -----------------------------------------------------------
-
 btnBrowse.addEventListener('click', async () => {
 	try {
 		const folder = await fs.getFolder();
@@ -379,21 +325,21 @@ btnBrowse.addEventListener('click', async () => {
 let currentSlug = null;
 
 btnAnalyze.addEventListener('click', async () => {
-	if (!targetFolder) return log('❌ Choose the target project folder (repo root) first!');
+	if (!targetFolder) return log('Choose the target project folder (repo root) first!');
 
 	const doc = app.activeDocument;
-	if (!doc) return log('❌ No document open!');
+	if (!doc) return log('No document open!');
 
 	const selection = doc.activeLayers;
-	if (!selection || selection.length === 0) return log('❌ Select 1 group/frame in the Layers panel!');
+	if (!selection || selection.length === 0) return log('Select 1 group/frame in the Layers panel!');
 
 	const root = selection[0];
-	if (!isGroup(root)) return log('❌ Select a GROUP/frame (not a single layer).');
+	if (!isGroup(root)) return log('Select a GROUP/frame (not a single layer).');
 
 	const sectionName = sectionNameInput.value.trim() || toPascal(parseMarkers(root.name).clean);
 	const slug = toSlug(sectionNameInput.value.trim() || parseMarkers(root.name).clean);
 	const rootPath = findPathById(doc.layers, root.id, []);
-	if (!rootPath) return log('❌ Could not find the selected layer in the document.');
+	if (!rootPath) return log('Could not find the selected layer in the document.');
 
 	currentSlug = slug;
 	ctx = { counts: { images: 0, text: 0, total: 0 } };
@@ -402,7 +348,7 @@ btnAnalyze.addEventListener('click', async () => {
 		const cfgEntry = await targetFolder.getEntry('.pts-config.json');
 		const cfg = JSON.parse(await cfgEntry.read());
 		if (cfg && cfg.varyingImagePolicy) varyingImagePolicy = cfg.varyingImagePolicy;
-	} catch (e) { /* no config → default api-slot (lean dynamic, don't over-cut) */ }
+	} catch (e) {}
 	ctx.policy = varyingImagePolicy;
 
 	try {
@@ -413,10 +359,8 @@ btnAnalyze.addEventListener('click', async () => {
 
 		const cacheFolder = await ensureFolder(targetFolder, ['.pts-cache', slug]);
 
-		log('🖼 Exporting preview…');
+		log('Exporting preview…');
 		const previewFile = await cacheFolder.createFile('preview.png', { overwrite: true });
-		// respectVisibility: a whole-frame preview must reflect real PSD visibility — otherwise
-		// mutually-exclusive tab/phase siblings (hidden in Photoshop) get force-shown and overlap.
 		await sliceOne(doc, rootPath, previewFile, { respectVisibility: true });
 
 		const rawTree = {
@@ -433,20 +377,15 @@ btnAnalyze.addEventListener('click', async () => {
 		const rawTreeFile = await cacheFolder.createFile('raw-tree.json', { overwrite: true });
 		await rawTreeFile.write(treeJson);
 
-		// subRole đã được tính ngay lúc phân tích (classifyList), nên plan.json sẵn sàng
-		// luôn — KHÔNG cần bước terminal --plan bắt buộc. Ghi plan.json và mở review ngay
-		// (phân tích → review → cắt trong 1 phiên Photoshop).
 		const planFile = await cacheFolder.createFile('plan.json', { overwrite: true });
 		await planFile.write(treeJson);
 
-		log(`✅ Analysis done! ${ctx.counts.total} layers (${ctx.counts.images} images, ${ctx.counts.text} text). Review below, then click ✂️ Cut.\n(Optional: "bun run gen-section --plan ${slug}" to let AI name props / resolve doubts, then click 🔄 Reload.)`);
+		log(`Analysis done! ${ctx.counts.total} layers (${ctx.counts.images} images, ${ctx.counts.text} text). Review below, then click Cut.\n(Optional: "bun run gen-section --plan ${slug}" to let AI name props / resolve doubts, then click Reload.)`);
 		await loadPlan();
 	} catch (err) {
-		log('❌ Error: ' + err.message);
+		log('Error: ' + err.message);
 	}
 });
-
-// --- Phase 2: review + cut -----------------------------------------------
 
 async function loadPlan() {
 	try {
@@ -456,9 +395,9 @@ async function loadPlan() {
 		currentPlan = JSON.parse(text);
 		reviewSection.style.display = 'block';
 		renderReviewList();
-		log(`📋 plan.json loaded: ${collectAnnotatedNodes(currentPlan.root).length} nodes.`);
+		log(`plan.json loaded: ${collectAnnotatedNodes(currentPlan.root).length} nodes.`);
 	} catch (err) {
-		log('❌ No plan.json yet — click 🔍 Analyze structure first.');
+		log('No plan.json yet — click Analyze structure first.');
 	}
 }
 
@@ -471,10 +410,6 @@ btnOpenPlan.addEventListener('click', async () => {
 	require('uxp').shell.openPath(planEntry.nativePath);
 });
 
-// The reviewable atoms are the asset/text nodes — including those inside a list's
-// instanceTemplate (the podium/item/number of one card). The list wrapper itself is
-// not a card; its template children are. Each entry carries a breadcrumb `trail`
-// (names of the enclosing container/list nodes) so the reviewer can place it.
 function collectAnnotatedNodes(root) {
 	const out = [];
 	function walk(node, trail, isTemplateChild) {
@@ -492,8 +427,6 @@ function nodeNeedsReview(node) {
 	return !!node.needsReview;
 }
 
-// Flat index of every cuttable asset node (top-level and inside list templates)
-// by layerId, so a finished cut job can stamp its filename back onto the node.
 function buildAssetIndex(root) {
 	const byLayerId = {};
 	function walk(node) {
@@ -503,6 +436,11 @@ function buildAssetIndex(root) {
 				node.layerIds.forEach((lid, i) => { byLayerId[lid] = { node, index: i }; });
 			} else if (node.layerId != null) {
 				byLayerId[node.layerId] = { node, index: null };
+			}
+			if (Array.isArray(node.variants)) {
+				node.variants.forEach((v, i) => {
+					if (v && v.layerId != null) byLayerId[v.layerId] = { node, index: null, variantIndex: i };
+				});
 			}
 		}
 		if (node.children) node.children.forEach(walk);
@@ -540,8 +478,6 @@ function renderReviewList() {
 	updateCutGate(entries);
 }
 
-// A list's per-instance image now has 3 modes (§12.1) — "Per-item" (static-per-instance)
-// only applies inside a list's instanceTemplate, never to a standalone top-level asset.
 function subRoleOptions(entry) {
 	if (entry.node.role === 'text') {
 		return [{ value: 'text', label: 'Static' }, { value: 'dynamic-text', label: 'Dynamic' }];
@@ -608,6 +544,13 @@ function renderCard(entry) {
 		main.appendChild(reason);
 	}
 
+	if (Array.isArray(node.variants) && node.variants.length) {
+		const vars = document.createElement('div');
+		vars.className = 'review-card__variants';
+		vars.textContent = `+${node.variants.length} variant: ${node.variants.map((v) => v.key).join(', ')}`;
+		main.appendChild(vars);
+	}
+
 	const controls = document.createElement('div');
 	controls.className = 'review-card__controls';
 
@@ -658,36 +601,36 @@ function renderCard(entry) {
 
 btnCut.addEventListener('click', async () => {
 	const doc = app.activeDocument;
-	if (!doc) return log('❌ No document open!');
-	if (!currentPlan) return log('❌ plan.json not loaded.');
+	if (!doc) return log('No document open!');
+	if (!currentPlan) return log('plan.json not loaded.');
 
 	try {
 		const issues = validatePlan(currentPlan.root);
 		if (issues.length > 0) {
-			log('❌ plan.json is invalid:\n' + issues.join('\n'));
+			log('plan.json is invalid:\n' + issues.join('\n'));
 			return;
 		}
 
 		const jobs = planCutJobs(currentPlan.slug, currentPlan.root);
 		const assetIndex = buildAssetIndex(currentPlan.root);
 		const imagesFolder = await ensureFolder(targetFolder, ['public', 'images']);
+		const skipped = [];
 
 		for (let i = 0; i < jobs.length; i++) {
 			const job = jobs[i];
 			const layerPath = findPathById(doc.layers, job.layerId, []);
 			if (!layerPath) {
-				log(`⚠️ Skipping ${job.fileName}: layer not found (id ${job.layerId}).`);
+				skipped.push(`${job.fileName} (layer id ${job.layerId} not found)`);
 				continue;
 			}
-			log(`✂️ Cutting ${i + 1}/${jobs.length}: ${job.fileName}`);
+			log(`Cutting ${i + 1}/${jobs.length}: ${job.fileName}`);
 			const file = await imagesFolder.createFile(job.fileName, { overwrite: true });
 			await sliceOne(doc, layerPath, file);
 
-			// Stamp the resolved filename back onto the node so design-spec.json
-			// carries the real cut filename instead of leaving codegen to guess it.
 			const target = assetIndex[job.layerId];
 			if (target) {
-				if (target.index == null) target.node.image = job.fileName;
+				if (target.variantIndex != null) target.node.variants[target.variantIndex].image = job.fileName;
+				else if (target.index == null) target.node.image = job.fileName;
 				else target.node.images[target.index] = job.fileName;
 			}
 		}
@@ -696,8 +639,9 @@ btnCut.addEventListener('click', async () => {
 		const specFile = await cacheFolder.createFile('design-spec.json', { overwrite: true });
 		await specFile.write(JSON.stringify(currentPlan, null, 2));
 
-		log(`✅ Done! ${jobs.length} images + design-spec.json.\n➡️ bun run gen-section .pts-cache/${currentPlan.slug}/design-spec.json`);
+		const skipNote = skipped.length ? `\nSKIPPED ${skipped.length}:\n- ${skipped.join('\n- ')}` : '';
+		log(`Done! ${jobs.length - skipped.length}/${jobs.length} images + design-spec.json.${skipNote}\nbun run gen-section .pts-cache/${currentPlan.slug}/design-spec.json`);
 	} catch (err) {
-		log('❌ Error: ' + err.message);
+		log('Error: ' + err.message);
 	}
 });

@@ -1,31 +1,57 @@
-const { deburr } = require('./textUtils');
+const { deburr, toPascal } = require('./textUtils');
+
+function median(arr) {
+	if (!arr.length) return 0;
+	const s = [...arr].sort((a, b) => a - b);
+	const m = Math.floor(s.length / 2);
+	return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+function detectLayout(items) {
+	if (items.length < 2) return { direction: 'absolute' };
+	const xs = items.map((i) => i.x), ys = items.map((i) => i.y);
+	const spanX = Math.max(...xs) - Math.min(...xs);
+	const spanY = Math.max(...ys) - Math.min(...ys);
+	const horizontal = spanX >= spanY;
+	const sorted = [...items].sort((a, b) => (horizontal ? a.x - b.x : a.y - b.y));
+	const gaps = [];
+	for (let i = 1; i < sorted.length; i++) {
+		const prev = sorted[i - 1];
+		gaps.push(horizontal ? sorted[i].x - (prev.x + prev.w) : sorted[i].y - (prev.y + prev.h));
+	}
+	if (Math.min(...gaps) < -20) return { direction: 'absolute' };
+	return { direction: horizontal ? 'row' : 'column', gap: Math.max(0, Math.round(median(gaps))) };
+}
 
 function stripMarkers(name) {
 	const c = String(name).replace(/\[[^\]]*\]/g, '').trim();
 	return c || String(name);
 }
+function stripCopySuffix(name) {
+	const c = name.replace(/\s+copy(\s+\d+)?$/i, '').trim();
+	return c || name;
+}
 function cleanKey(name) {
-	return deburr(stripMarkers(name)).toLowerCase();
+	return deburr(stripCopySuffix(stripMarkers(name))).toLowerCase();
 }
 function normText(s) {
 	return String(s == null ? '' : s).replace(/\s+/g, ' ').trim().toLowerCase();
 }
-function sizeBucket(n) {
-	return Math.round((n || 0) / 2) * 2; // tolerate ±1px rounding
+
+const SIZE_TOLERANCE = 1;
+const SIZE_BORDERLINE = 3;
+function sizeMatches(a, b, tol) {
+	return Math.abs(a.bounds.w - b.bounds.w) <= tol && Math.abs(a.bounds.h - b.bounds.h) <= tol;
 }
 
-// Recursive signature — excludes absolute x/y.
 function sigOf(desc) {
 	if (!desc) return '';
-	const size = `${sizeBucket(desc.bounds.w)}x${sizeBucket(desc.bounds.h)}`;
-	if (desc.kind === 'text') return `t:${cleanKey(desc.name)}:${normText(desc.text)}:${size}`;
-	if (desc.kind === 'image') return `i:${cleanKey(desc.name)}:${size}`;
+	if (desc.kind === 'text') return `t:${cleanKey(desc.name)}:${normText(desc.text)}`;
+	if (desc.kind === 'image') return `i:${cleanKey(desc.name)}`;
 	const kids = (desc.children || []).map(sigOf).sort();
-	return `g:${cleanKey(desc.name)}:${size}:(${kids.join(',')})`;
+	return `g:${cleanKey(desc.name)}:(${kids.join(',')})`;
 }
 
-// All text content inside a subtree, joined — used to tell a data-driven label
-// (a milestone number that changes per item) from a purely visual/state group.
 function deepText(desc) {
 	if (!desc) return '';
 	if (desc.kind === 'text') return normText(desc.text);
@@ -41,17 +67,44 @@ function firstText(desc) {
 	return '';
 }
 
-function markerFor(desc) {
-	const mk = desc.marker || {};
-	if (mk.bind) return { subRole: desc.kind === 'text' ? 'dynamic-text' : 'dynamic-image', apiHint: mk.bind };
+function markerFor(aligned) {
+	const list = Array.isArray(aligned) ? aligned : [aligned];
+	for (const desc of list) {
+		const mk = (desc && desc.marker) || {};
+		if (mk.bind) return { subRole: desc.kind === 'text' ? 'dynamic-text' : 'dynamic-image', apiHint: mk.bind };
+	}
 	return null;
 }
 
-// Pick the instance whose direct-child structure is the most common (modal), so an
-// atypical state variant (e.g. a "claimed" milestone with an extra ribbon layer)
-// neither becomes the template nor corrupts the cross-instance comparison. Keeps each
-// typical instance's original index (typicalIndices) so a per-instance bounds override
-// can be mapped back to the right list position later.
+function roleMarkerFor(aligned) {
+	for (const desc of aligned) {
+		const mk = (desc && desc.marker) || {};
+		if (mk.role && mk.role !== 'asset') return { role: mk.role, layout: mk.layout || null };
+	}
+	return null;
+}
+
+const AUTO_LIST_MIN = 4;
+function structureSigDesc(desc, depth) {
+	if (!desc) return '';
+	if (desc.kind === 'text') return 't';
+	if (desc.kind !== 'group') return 'i';
+	if (depth <= 0) return 'g';
+	const kids = (desc.children || []).map((c) => structureSigDesc(c, depth - 1)).sort();
+	return `g(${kids.join(',')})`;
+}
+function isAutoListDesc(desc) {
+	if (!desc || desc.kind !== 'group') return false;
+	const kids = desc.children || [];
+	const groups = kids.filter((k) => k.kind === 'group');
+	if (groups.length < AUTO_LIST_MIN) return false;
+	if (groups.length < kids.length * 0.6) return false;
+	const counts = {};
+	groups.forEach((k) => { const s = structureSigDesc(k, 2); counts[s] = (counts[s] || 0) + 1; });
+	const dominant = Math.max.apply(null, Object.values(counts));
+	return dominant >= Math.ceil(groups.length * 0.6);
+}
+
 function pickRepresentative(instances) {
 	const counts = instances.map((g) => (g.children || []).length);
 	const freq = {};
@@ -64,12 +117,7 @@ function pickRepresentative(instances) {
 	return { repIdx, typical, typicalIndices };
 }
 
-// Some list instances genuinely differ in inner geometry from the representative — not
-// just position, but size (e.g. a perspective goal-frame design where the outer frames
-// are drawn larger than the inner ones). A single shared `bounds` can't represent that;
-// record a per-instance override only where it deviates beyond rounding noise, so a
-// uniform list (the common case) gets none and its output stays exactly as before.
-const BOUNDS_OVERRIDE_TOLERANCE = 3; // px
+const BOUNDS_OVERRIDE_TOLERANCE = 3;
 function relTo(desc, originX, originY) {
 	return { x: desc.bounds.x - originX, y: desc.bounds.y - originY, w: desc.bounds.w, h: desc.bounds.h };
 }
@@ -88,11 +136,10 @@ function buildBoundsOverride(typical, typicalIndices, childIndex, baseRel) {
 	return Object.keys(overrides).length ? overrides : null;
 }
 
-// Classify one aligned position across the "typical" instances into a template node.
 function classifyAligned(aligned, originX, originY, policy) {
 	const first = aligned[0];
 	const rel = { x: first.bounds.x - originX, y: first.bounds.y - originY, w: first.bounds.w, h: first.bounds.h };
-	const mk = markerFor(first);
+	const mk = markerFor(aligned);
 	const name = stripMarkers(first.name);
 
 	const asAsset = (subRole, apiHint) => ({
@@ -104,47 +151,101 @@ function classifyAligned(aligned, originX, originY, policy) {
 		bind: apiHint || null, apiHint: apiHint || null, needsReview: false, reviewReason: null, bounds: rel
 	});
 
-	// Explicit marker is ground truth.
 	if (mk) return first.kind === 'text' ? asText(mk.subRole, mk.apiHint) : asAsset(mk.subRole, mk.apiHint);
 
-	const sigs = aligned.map(sigOf);
-	const allSame = sigs.every((s) => s === sigs[0]);
-	if (allSame) return first.kind === 'text' ? asText('text') : asAsset('static-asset');
+	const roleMk = roleMarkerFor(aligned);
+	if (roleMk && first.kind === 'group') {
+		if (roleMk.role === 'list') return buildNestedList(first, name, rel, roleMk.layout, policy);
+		return buildNestedContainer(first, aligned, name, rel, roleMk, policy);
+	}
 
-	// Varies across the typical instances → dynamic.
-	if (first.kind === 'text') return asText('dynamic-text');
+	const sigs = aligned.map(sigOf);
+	const sigsSame = sigs.every((s) => s === sigs[0]);
+	const sizesSame = aligned.every((a) => sizeMatches(a, first, SIZE_TOLERANCE));
+	if (sigsSame && sizesSame) {
+		if (first.kind === 'group' && isAutoListDesc(first)) return buildNestedList(first, name, rel, null, policy);
+		return first.kind === 'text' ? asText('text') : asAsset('static-asset');
+	}
+
+	const borderline = sigsSame && !sizesSame &&
+		aligned.every((a) => sizeMatches(a, first, SIZE_BORDERLINE));
+	const borderlineNote = borderline
+		? 'Instances differ in size by only a few px (name/text identical) — likely PSD rounding noise, not real per-item art. Double-check before relying on this as dynamic.'
+		: null;
+
+	if (first.kind === 'text') {
+		const node = asText('dynamic-text');
+		node.reviewReason = borderlineNote;
+		return node;
+	}
 	if (first.kind === 'image') {
 		if (policy === 'fixed-all') {
 			return {
 				role: 'asset', name, subRole: 'static-per-instance',
 				layerIds: aligned.map((a) => a.layerId), images: null,
-				apiHint: null, needsReview: false, reviewReason: null, bounds: rel
+				apiHint: null, needsReview: false, reviewReason: borderlineNote, bounds: rel
 			};
 		}
-		// api-slot: default to a single API demo, but KEEP every instance's layerId so the
-		// review UI's "Per-item" toggle can cut all N later without a re-analyze (harmless
-		// while it stays dynamic-image — planCutJobs/buildAssetIndex key off subRole).
 		const node = asAsset('dynamic-image');
 		node.layerIds = aligned.map((a) => a.layerId);
+		node.reviewReason = borderlineNote;
 		return node;
 	}
 
-	// A GROUP that varies: distinguish data-driven from state-driven variation.
 	const texts = aligned.map(deepText);
 	const textVaries = texts.some((t) => t !== texts[0]) && texts.some((t) => t.length > 0);
 	if (textVaries) {
-		// The variation is carried by text (e.g. the milestone number) → dynamic-text.
 		const node = asText('dynamic-text');
 		node.text = firstText(first);
 		return node;
 	}
-	// No varying text — the group differs only visually (e.g. podium gold vs gray by
-	// claimed/locked state). Cut the whole group once as a representative static image
-	// and flag it so the reviewer confirms the state handling.
 	const node = asAsset('static-asset');
 	node.needsReview = true;
 	node.reviewReason = 'Group changes by state across items (not data) — cut one representative image, please double-check.';
 	return node;
+}
+
+function rosterOf(desc, ox, oy) {
+	const out = {
+		name: stripMarkers(desc.name),
+		layerId: desc.layerId,
+		kind: desc.kind,
+		bounds: { x: desc.bounds.x - ox, y: desc.bounds.y - oy, w: desc.bounds.w, h: desc.bounds.h }
+	};
+	if (desc.text != null) out.text = desc.text;
+	if (desc.children) out.children = desc.children.map((c) => rosterOf(c, ox, oy));
+	return out;
+}
+
+function buildNestedList(desc, name, rel, markerLayout, policy) {
+	const subInstances = desc.children || [];
+	const layout = markerLayout
+		? { direction: markerLayout, gap: 0 }
+		: detectLayout(subInstances.map((c) => c.bounds));
+	const innerLayout = detectLayout(((subInstances[0] || {}).children || []).map((c) => c.bounds));
+	return {
+		role: 'list',
+		name,
+		component: toPascal(name),
+		layout,
+		bounds: rel,
+		count: subInstances.length,
+		instanceOffsets: subInstances.map((c) => ({ x: c.bounds.x - desc.bounds.x, y: c.bounds.y - desc.bounds.y })),
+		instanceLayers: subInstances.map((c) => (c.children || []).map((g) => rosterOf(g, c.bounds.x, c.bounds.y))),
+		instanceTemplate: buildInstanceTemplate(subInstances, innerLayout, policy)
+	};
+}
+
+function buildNestedContainer(desc, aligned, name, rel, roleMk, policy) {
+	const kids = desc.children || [];
+	const children = kids.map((_, k) => {
+		const alignedKids = aligned.map((g) => (g && g.children || [])[k]).filter(Boolean);
+		return classifyAligned(alignedKids, desc.bounds.x, desc.bounds.y, policy);
+	});
+	const layout = roleMk.layout
+		? { direction: roleMk.layout, gap: 0 }
+		: detectLayout(children.map((c) => c.bounds));
+	return { role: roleMk.role === 'component' ? 'component' : 'container', name, layout, bounds: rel, children };
 }
 
 function buildInstanceTemplate(instanceDescs, instanceLayout, policy) {
@@ -160,9 +261,21 @@ function buildInstanceTemplate(instanceDescs, instanceLayout, policy) {
 		const node = classifyAligned(typical.map((g) => (g.children || [])[k]), originX, originY, pol);
 		const override = buildBoundsOverride(typical, typicalIndices, k, node.bounds);
 		if (override) node.boundsOverride = override;
+		if (node.subRole === 'static-per-instance') expandToAllInstances(node, instanceDescs, k);
 		return node;
 	});
 	return { layout, children };
 }
 
-module.exports = { sigOf, buildInstanceTemplate };
+function expandToAllInstances(node, instanceDescs, k) {
+	node.layerIds = instanceDescs.map((inst, origIdx) => {
+		const child = (inst.children || [])[k];
+		if (child) return child.layerId;
+		node.needsReview = true;
+		node.reviewReason = (node.reviewReason ? node.reviewReason + ' ' : '') +
+			`Instance ${origIdx + 1} has fewer layers than the template at this position — no matching layer found, skipped; verify/re-cut manually.`;
+		return null;
+	});
+}
+
+module.exports = { sigOf, buildInstanceTemplate, rosterOf, detectLayout, median };
